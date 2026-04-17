@@ -22,8 +22,31 @@ module aerolink_master_tb;
     reg clk;
     reg resetn;
 
-    // Serial link between master and slave
-    wire master_tx, slave_tx;
+    // Shared LVDS differential bus with bias for defined idle state
+    wire aerolink_p, aerolink_n;
+    pullup(aerolink_p);
+    pulldown(aerolink_n);
+
+    // Master tristate triplet → IOBUFDS
+    wire master_o, master_i, master_t;
+    IOBUFDS u_iobuf_master (
+        .O   (master_i),
+        .IO  (aerolink_p),
+        .IOB (aerolink_n),
+        .I   (master_o),
+        .T   (master_t)
+    );
+
+    // Slave tristate triplet → IOBUFDS
+    wire slave_o, slave_i, slave_t;
+    IOBUFDS u_iobuf_slave (
+        .O   (slave_i),
+        .IO  (aerolink_p),
+        .IOB (aerolink_n),
+        .I   (slave_o),
+        .T   (slave_t)
+    );
+
     wire master_irq, slave_irq;
 
     // -----------------------------------------------------------------------
@@ -145,8 +168,9 @@ module aerolink_master_tb;
         .s_axi_rresp     (m_rresp),
         .s_axi_rvalid    (m_rvalid),
         .s_axi_rready    (m_rready),
-        .aerolink_tx     (master_tx),
-        .aerolink_rx     (slave_tx),
+        .aerolink_o      (master_o),
+        .aerolink_i      (master_i),
+        .aerolink_t      (master_t),
         .irq             (master_irq)
     );
 
@@ -183,8 +207,9 @@ module aerolink_master_tb;
         .s_axi_rresp     (s_rresp),
         .s_axi_rvalid    (s_rvalid),
         .s_axi_rready    (s_rready),
-        .aerolink_tx     (slave_tx),
-        .aerolink_rx     (master_tx),
+        .aerolink_o      (slave_o),
+        .aerolink_i      (slave_i),
+        .aerolink_t      (slave_t),
         .irq             (slave_irq)
     );
 
