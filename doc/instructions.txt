@@ -1,0 +1,54 @@
+currently flight controllers for drones use a few different ways to communicate between the flight controller and esc's (electronic speed controller). they include, pwm, dshot and can bus. I want to propose a new protocol that uses LVDS IOs with 8B10B encoding.
+
+I want to create a new protocol called AeroLink-8b10b.
+
+This new protocol will have a 8b10b symbol rate of 2.5MHz. This protocol will only use a single wire pair. So communication is half duplex.
+
+On one end of the single wire pair is a master and the other end is the slave. the master will always send a frame every 200us.
+
+A frame has the following format.
+
+K28.5 K28.5 /S/ DDDDDD... /T/
+
+The maximum frame size will contain K28.5 + K28.5 + /S/ + D symbol with encoded priority + 128 D symbols + 2 D symbols carrying the 16-bit CRC for the previous D symbols + /T/. For a total of 135 symbols. 
+
+The smallest packet will contain K28.5 + K28.5 + /S/ + D symbol with encoded priority + 4 D symbols + 2 D symbols carrying the 16-bit CRC for the previous D symbols + /T/. For a total of 11 symbols.
+
+The priority symbol is a single byte. When bit[7] of the priority byte is set, then the message is considered 
+
+The receiver will oversample the pin at 5x the line rate. So in this case it will be 12.5MHz. The two K28.5 symbols allows the receiver to lock on the frame.
+Use the 5x oversample to lock to the middle of the frame.
+
+The last 2 bytes of the payload is a 16-bit CRC covering the previous payload bytes.
+
+The time budget is the following.
+
+54 uS for max frame size
+46 uS for turn around time
+54 uS for max frame size of reply.
+46 uS for turn around time
+
+In the case of a frame less than the full 135 symbols, there is no need to wait the full 54 uS. before starting the turnaround wait time to wait for a reply. but the master must maintain a 200uS frame transmit cadence.
+
+I want you to create an IP Core. The IP Core should have a axi-lite slave and a configurable number of AeroLink connections. At synthesis time, each individual aerolink connection can be a master or a slave.
+
+each aerolink connection will have a 2 transmit fifos, one fifo for high priority messages and one for regular priority messages. Similarly there are 2 receive fifos, one for high priority messages and one for regular priority messages. Each fifo can hold 512 bytes and is accessed by a 32-bit axi interface.
+
+there is also a tx control word fifo for each transmit fifo. the tx control word specifies the message priority, if the hardware should autogenerate the crc and the number of times to repeat the message up to a max of 8 times. if the microprocessor is supplying the 16-bit crc, that will be part of the tx control word.
+
+each receive fifo also has a rx control word fifo for each rx fifo. the rx control word has the received priority byte, length of received message, error status bits, received 16-bit crc.
+
+to simplify the design, valid packet sizes are in a multiples of 32-bits. if there are no packets to send, the master should send 4 K28.5 symbols. if the slave has no data to send, it can remain silent.
+
+each aerolink connection will have the following control bits. tx enable, rx enable, tx reset, rx reset, drop errored frames.
+
+Each aerolink port has the following interrupt sources that can be optionally masked: transmit queue empty - one bit for each transmit fifo, transmit complete - one bit for each fifo, rx fifo not empty - one bit for each fifo.
+
+There should be one register bit that can be read to show the real time status of the irq pin going to the processor.
+
+There will be the following statistic registers, num tx frames, num of tx idle frames, num of rx frames, num of rx crc error frames, num of rx frames with 8b10b disparity errors, num of rx frames with 8b10b symbol errors. Size the statistic counters to be 16-bits wide.
+
+The aeroframe pin should be selectable between single ended lvcmos or lvds differential.
+
+There should be a gui to choose the number of aerolink ports and which IO style. The choices for IO styles should be human friendly to read.
+
