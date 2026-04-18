@@ -86,6 +86,9 @@ module aerolink_axil_regs #(
     input  wire [NUM_PORTS*16-1:0] port_stat_rx_disp_errors,
     input  wire [NUM_PORTS*16-1:0] port_stat_rx_sym_errors,
 
+    // Per-port statistics clear-on-read (one-cycle pulse per counter)
+    output reg  [NUM_PORTS*6-1:0]  port_stat_clr,
+
     // Per-port IRQ sources
     input  wire [NUM_PORTS-1:0]    port_irq_tx_hipri_empty,
     input  wire [NUM_PORTS-1:0]    port_irq_tx_regpri_empty,
@@ -307,12 +310,14 @@ module aerolink_axil_regs #(
             port_rx_hipri_ctrl_rd  <= {NUM_PORTS{1'b0}};
             port_rx_regpri_data_rd <= {NUM_PORTS{1'b0}};
             port_rx_regpri_ctrl_rd <= {NUM_PORTS{1'b0}};
+            port_stat_clr          <= {(NUM_PORTS*6){1'b0}};
         end else begin
             // Default: deassert single-cycle pulses
             port_rx_hipri_data_rd  <= {NUM_PORTS{1'b0}};
             port_rx_hipri_ctrl_rd  <= {NUM_PORTS{1'b0}};
             port_rx_regpri_data_rd <= {NUM_PORTS{1'b0}};
             port_rx_regpri_ctrl_rd <= {NUM_PORTS{1'b0}};
+            port_stat_clr          <= {(NUM_PORTS*6){1'b0}};
 
             s_axi_arready <= 1'b0;
 
@@ -403,21 +408,27 @@ module aerolink_axil_regs #(
                         end
                         REG_STAT_TX_FRAMES: begin
                             s_axi_rdata <= {16'd0, port_stat_tx_frames[rd_port_num*16 +: 16]};
+                            port_stat_clr[rd_port_num*6 + 0] <= 1'b1;
                         end
                         REG_STAT_TX_IDLE: begin
                             s_axi_rdata <= {16'd0, port_stat_tx_idle_frames[rd_port_num*16 +: 16]};
+                            port_stat_clr[rd_port_num*6 + 1] <= 1'b1;
                         end
                         REG_STAT_RX_FRAMES: begin
                             s_axi_rdata <= {16'd0, port_stat_rx_frames[rd_port_num*16 +: 16]};
+                            port_stat_clr[rd_port_num*6 + 2] <= 1'b1;
                         end
                         REG_STAT_RX_CRC_ERR: begin
                             s_axi_rdata <= {16'd0, port_stat_rx_crc_errors[rd_port_num*16 +: 16]};
+                            port_stat_clr[rd_port_num*6 + 3] <= 1'b1;
                         end
                         REG_STAT_RX_DISP_ERR: begin
                             s_axi_rdata <= {16'd0, port_stat_rx_disp_errors[rd_port_num*16 +: 16]};
+                            port_stat_clr[rd_port_num*6 + 4] <= 1'b1;
                         end
                         REG_STAT_RX_SYM_ERR: begin
                             s_axi_rdata <= {16'd0, port_stat_rx_sym_errors[rd_port_num*16 +: 16]};
+                            port_stat_clr[rd_port_num*6 + 5] <= 1'b1;
                         end
                         default: s_axi_rdata <= {DATA_WIDTH{1'b0}};
                     endcase

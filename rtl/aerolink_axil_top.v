@@ -108,6 +108,7 @@ module aerolink_axil_top #(
     wire [NUM_PORTS*16-1:0] port_stat_rx_crc_errors;
     wire [NUM_PORTS*16-1:0] port_stat_rx_disp_errors;
     wire [NUM_PORTS*16-1:0] port_stat_rx_sym_errors;
+    wire [NUM_PORTS*6-1:0]  port_stat_clr;
 
     // IRQ sources
     wire [NUM_PORTS-1:0] port_irq_tx_hipri_empty;
@@ -199,6 +200,7 @@ module aerolink_axil_top #(
         .port_stat_rx_crc_errors    (port_stat_rx_crc_errors),
         .port_stat_rx_disp_errors   (port_stat_rx_disp_errors),
         .port_stat_rx_sym_errors    (port_stat_rx_sym_errors),
+        .port_stat_clr              (port_stat_clr),
 
         // IRQ sources
         .port_irq_tx_hipri_empty    (port_irq_tx_hipri_empty),
@@ -289,6 +291,7 @@ module aerolink_axil_top #(
                 .stat_rx_crc_errors     (port_stat_rx_crc_errors[gi*16 +: 16]),
                 .stat_rx_disp_errors    (port_stat_rx_disp_errors[gi*16 +: 16]),
                 .stat_rx_sym_errors     (port_stat_rx_sym_errors[gi*16 +: 16]),
+                .stat_clr               (port_stat_clr[gi*6 +: 6]),
 
                 // IRQ sources
                 .irq_tx_hipri_empty     (port_irq_tx_hipri_empty[gi]),

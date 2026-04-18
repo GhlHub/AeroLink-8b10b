@@ -69,13 +69,14 @@ module aerolink_port #(
     output wire        rx_regpri_ctrl_empty,
     output wire        rx_regpri_ctrl_full,
 
-    // Statistics counters
+    // Statistics counters (clear-on-read via stat_clr)
     output reg  [15:0] stat_tx_frames,
     output reg  [15:0] stat_tx_idle_frames,
     output reg  [15:0] stat_rx_frames,
     output reg  [15:0] stat_rx_crc_errors,
     output reg  [15:0] stat_rx_disp_errors,
     output reg  [15:0] stat_rx_sym_errors,
+    input  wire [5:0]  stat_clr,
 
     // Interrupt sources
     output wire        irq_tx_hipri_empty,
@@ -360,7 +361,9 @@ module aerolink_port #(
     );
 
     // =========================================================================
-    // Statistics counters (saturating at 16'hFFFF)
+    // Statistics counters (saturating at 16'hFFFF, clear-on-read)
+    // stat_clr bit mapping: [0]=tx_frames [1]=tx_idle [2]=rx_frames
+    //                       [3]=rx_crc    [4]=rx_disp [5]=rx_sym
     // =========================================================================
     always @(posedge clk) begin
         if (rst) begin
@@ -371,22 +374,34 @@ module aerolink_port #(
             stat_rx_disp_errors <= 16'd0;
             stat_rx_sym_errors <= 16'd0;
         end else begin
-            if (tx_eng_stat_tx_frame && stat_tx_frames != 16'hFFFF)
+            if (stat_clr[0])
+                stat_tx_frames <= tx_eng_stat_tx_frame ? 16'd1 : 16'd0;
+            else if (tx_eng_stat_tx_frame && stat_tx_frames != 16'hFFFF)
                 stat_tx_frames <= stat_tx_frames + 16'd1;
 
-            if (tx_eng_stat_tx_idle && stat_tx_idle_frames != 16'hFFFF)
+            if (stat_clr[1])
+                stat_tx_idle_frames <= tx_eng_stat_tx_idle ? 16'd1 : 16'd0;
+            else if (tx_eng_stat_tx_idle && stat_tx_idle_frames != 16'hFFFF)
                 stat_tx_idle_frames <= stat_tx_idle_frames + 16'd1;
 
-            if (rx_eng_stat_rx_frame && stat_rx_frames != 16'hFFFF)
+            if (stat_clr[2])
+                stat_rx_frames <= rx_eng_stat_rx_frame ? 16'd1 : 16'd0;
+            else if (rx_eng_stat_rx_frame && stat_rx_frames != 16'hFFFF)
                 stat_rx_frames <= stat_rx_frames + 16'd1;
 
-            if (rx_eng_stat_rx_crc_err && stat_rx_crc_errors != 16'hFFFF)
+            if (stat_clr[3])
+                stat_rx_crc_errors <= rx_eng_stat_rx_crc_err ? 16'd1 : 16'd0;
+            else if (rx_eng_stat_rx_crc_err && stat_rx_crc_errors != 16'hFFFF)
                 stat_rx_crc_errors <= stat_rx_crc_errors + 16'd1;
 
-            if (rx_eng_stat_rx_disp_err && stat_rx_disp_errors != 16'hFFFF)
+            if (stat_clr[4])
+                stat_rx_disp_errors <= rx_eng_stat_rx_disp_err ? 16'd1 : 16'd0;
+            else if (rx_eng_stat_rx_disp_err && stat_rx_disp_errors != 16'hFFFF)
                 stat_rx_disp_errors <= stat_rx_disp_errors + 16'd1;
 
-            if (rx_eng_stat_rx_sym_err && stat_rx_sym_errors != 16'hFFFF)
+            if (stat_clr[5])
+                stat_rx_sym_errors <= rx_eng_stat_rx_sym_err ? 16'd1 : 16'd0;
+            else if (rx_eng_stat_rx_sym_err && stat_rx_sym_errors != 16'hFFFF)
                 stat_rx_sym_errors <= stat_rx_sym_errors + 16'd1;
         end
     end

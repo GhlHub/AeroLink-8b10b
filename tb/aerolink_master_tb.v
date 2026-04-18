@@ -644,9 +644,6 @@ module aerolink_master_tb;
         -> evt_inject_sym;
         #400_000;
 
-        // At least one of symbol/disparity/CRC error should be reported
-        axi_read(16'd1, ADDR_STAT_RX_SYM, rd_data);
-        axi_read(16'd1, ADDR_STAT_RX_DISP, rd_data);
         // Check combined: sym or disp error count > 0
         begin : sym_err_check
             reg [31:0] sym_cnt, disp_cnt;
