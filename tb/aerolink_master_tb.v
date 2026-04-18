@@ -27,8 +27,10 @@ module aerolink_master_tb;
     pullup(aerolink_p);
     pulldown(aerolink_n);
 
-    // Master tristate triplet → IOBUFDS
-    wire master_o, master_i, master_t;
+    // Master tristate triplet → IOBUFDS (with error injection)
+    wire master_o_dut, master_i, master_t;
+    reg  error_inject;
+    wire master_o = master_o_dut ^ error_inject;
     IOBUFDS u_iobuf_master (
         .O   (master_i),
         .IO  (aerolink_p),
@@ -168,7 +170,7 @@ module aerolink_master_tb;
         .s_axi_rresp     (m_rresp),
         .s_axi_rvalid    (m_rvalid),
         .s_axi_rready    (m_rready),
-        .aerolink_o      (master_o),
+        .aerolink_o      (master_o_dut),
         .aerolink_i      (master_i),
         .aerolink_t      (master_t),
         .irq             (master_irq)
@@ -358,6 +360,7 @@ module aerolink_master_tb;
     // Initial block — reset and signal initialization
     // -----------------------------------------------------------------------
     initial begin
+        error_inject = 0;
         // Master AXI signals
         m_awaddr  = 0; m_awprot = 0; m_awvalid = 0;
         m_wdata   = 0; m_wstrb  = 0; m_wvalid  = 0;
@@ -380,8 +383,8 @@ module aerolink_master_tb;
     // Timeout watchdog
     // -----------------------------------------------------------------------
     initial begin
-        #50_000_000;
-        $display("TIMEOUT: Simulation exceeded 50ms limit");
+        #100_000_000;
+        $display("TIMEOUT: Simulation exceeded 100ms limit");
         $finish;
     end
 
@@ -391,6 +394,36 @@ module aerolink_master_tb;
     initial begin
         $dumpfile("aerolink_master_tb.vcd");
         $dumpvars(0, aerolink_master_tb);
+    end
+
+    // -----------------------------------------------------------------------
+    // Error injection background processes
+    // -----------------------------------------------------------------------
+    event evt_inject_crc;
+    event evt_inject_sym;
+
+    initial begin
+        forever begin
+            @(evt_inject_crc);
+            wait(master_t == 1'b1);
+            @(negedge master_t);
+            #2000;
+            error_inject = 1;
+            #40;
+            error_inject = 0;
+        end
+    end
+
+    initial begin
+        forever begin
+            @(evt_inject_sym);
+            wait(master_t == 1'b1);
+            @(negedge master_t);
+            #2000;
+            error_inject = 1;
+            #400;
+            error_inject = 0;
+        end
     end
 
     // -----------------------------------------------------------------------
@@ -561,6 +594,109 @@ module aerolink_master_tb;
         check_nonzero("Master STAT_TX_IDLE", rd_data);
 
         $display("--- Test 6 Complete ---");
+
+        // ------------------------------------------------------------------
+        // Test 7: CRC Error Injection
+        // ------------------------------------------------------------------
+        $display("\n--- Test 7: CRC Error Injection ---");
+
+        // Ensure slave drop_errored is OFF so errored frames are delivered
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_0002);
+
+        // Clear slave stats by resetting RX path
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_000A); // rx_en=1, rx_rst=1
+        #100;
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_0002); // rx_en=1
+
+        // Queue a frame
+        axi_write(16'd0, ADDR_TX_HIPRI_DATA, 32'hBAAD_F00D);
+        axi_write(16'd0, ADDR_TX_HIPRI_CTRL, {13'd0, 7'd1, 3'd0, 1'b1, 8'h80});
+
+        // Inject bit flip during data portion of the frame
+        -> evt_inject_crc;
+        #400_000;
+
+        // Check slave stats
+        axi_read(16'd1, ADDR_STAT_RX_CRC, rd_data);
+        check_nonzero("Slave STAT_RX_CRC_ERR after inject", rd_data);
+
+        // Frame should still arrive (drop_errored=0) — check ctrl has CRC error flag
+        axi_read(16'd1, ADDR_RX_HIPRI_CTRL, rd_data);
+        check_bit("CRC error flag in RX ctrl", rd_data, 5'd13, 1'b1);
+
+        $display("--- Test 7 Complete ---");
+
+        // ------------------------------------------------------------------
+        // Test 8: Symbol Error Injection
+        // ------------------------------------------------------------------
+        $display("\n--- Test 8: Symbol Error Injection ---");
+
+        // Reset slave RX path to clear stats
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_000A);
+        #100;
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_0002);
+
+        // Queue a frame
+        axi_write(16'd0, ADDR_TX_HIPRI_DATA, 32'h5678_1234);
+        axi_write(16'd0, ADDR_TX_HIPRI_CTRL, {13'd0, 7'd1, 3'd0, 1'b1, 8'h80});
+
+        // Hold error_inject for a full symbol to corrupt 10-bit code completely
+        -> evt_inject_sym;
+        #400_000;
+
+        // At least one of symbol/disparity/CRC error should be reported
+        axi_read(16'd1, ADDR_STAT_RX_SYM, rd_data);
+        axi_read(16'd1, ADDR_STAT_RX_DISP, rd_data);
+        // Check combined: sym or disp error count > 0
+        begin : sym_err_check
+            reg [31:0] sym_cnt, disp_cnt;
+            axi_read(16'd1, ADDR_STAT_RX_SYM, sym_cnt);
+            axi_read(16'd1, ADDR_STAT_RX_DISP, disp_cnt);
+            if (sym_cnt !== 32'd0 || disp_cnt !== 32'd0) begin
+                $display("[PASS] Symbol/disparity error detected : sym=%0d disp=%0d", sym_cnt, disp_cnt);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("[FAIL] Symbol/disparity error expected but none detected");
+                fail_count = fail_count + 1;
+            end
+        end
+
+        $display("--- Test 8 Complete ---");
+
+        // ------------------------------------------------------------------
+        // Test 9: Drop Errored Frames
+        // ------------------------------------------------------------------
+        $display("\n--- Test 9: Drop Errored Frames ---");
+
+        // Enable drop_errored on slave
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_0012); // rx_en=1, drop_errored=1
+
+        // Reset slave RX FIFOs
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_001A); // rx_en=1, rx_rst=1, drop_errored=1
+        #100;
+        axi_write(16'd1, ADDR_CTRL, 32'h0000_0012); // clear rst
+
+        // Queue a frame that will be corrupted
+        axi_write(16'd0, ADDR_TX_HIPRI_DATA, 32'hDEAD_CAFE);
+        axi_write(16'd0, ADDR_TX_HIPRI_CTRL, {13'd0, 7'd1, 3'd0, 1'b1, 8'h80});
+
+        // Inject error
+        -> evt_inject_crc;
+        #400_000;
+
+        // Slave RX FIFO should be EMPTY (frame was dropped)
+        axi_read(16'd1, ADDR_FIFO_STATUS, rd_data);
+        check_bit("RX HIPRI data FIFO empty (frame dropped)", rd_data, 5'd8, 1'b1);
+
+        // Now send a CLEAN frame to verify good frames still pass
+        axi_write(16'd0, ADDR_TX_HIPRI_DATA, 32'hC0FFEE00);
+        axi_write(16'd0, ADDR_TX_HIPRI_CTRL, {13'd0, 7'd1, 3'd0, 1'b1, 8'h80});
+        #400_000;
+
+        axi_read(16'd1, ADDR_RX_HIPRI_DATA, rd_data);
+        check("Clean frame after drop", rd_data, 32'hC0FFEE00);
+
+        $display("--- Test 9 Complete ---");
 
         // ------------------------------------------------------------------
         // Summary
