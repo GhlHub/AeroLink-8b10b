@@ -47,6 +47,14 @@ module aerolink_axil_top #(
 );
 
     // =========================================================================
+    // Protocol constants — priority byte payload types
+    // =========================================================================
+    localparam [6:0] PTYPE_GENERIC    = 7'h00;
+    localparam [6:0] PTYPE_DSHOT_CMD  = 7'h01;
+    localparam [6:0] PTYPE_DSHOT_RESP = 7'h02;
+    localparam [6:0] PTYPE_UART       = 7'h03;
+
+    // =========================================================================
     // Clock and reset conversion
     // =========================================================================
     wire clk = s_axi_aclk;

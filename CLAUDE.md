@@ -19,6 +19,59 @@ The full protocol specification lives in `doc/instructions.txt`.
 - 16-bit CRC-CCITT (poly 0x1021, init 0xFFFF) over priority byte + data bytes
 - Time budget per half-cycle: 54 µs max frame + 46 µs turnaround
 
+## Priority Byte Format
+
+The priority byte is the first data symbol after /S/ in every frame.
+
+| Bits | Field | Description |
+|------|-------|-------------|
+| [7] | Priority | 1 = high priority (routed to hi-pri FIFO), 0 = regular |
+| [6:0] | Payload Type | Identifies the payload format |
+
+**Defined payload types:**
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 7'h00 | PTYPE_GENERIC | Generic / untyped payload |
+| 7'h01 | PTYPE_DSHOT_CMD | DShot command message (throttle, special commands) |
+| 7'h02 | PTYPE_DSHOT_RESP | DShot response (eRPM telemetry) |
+| 7'h03 | PTYPE_UART | Embedded UART tunnel between endpoints |
+| 7'h04–7'h7F | — | Reserved for future use |
+
+Examples: `0x81` = high-priority DShot command, `0x02` = regular-priority DShot response.
+
+The hardware routes frames based solely on bit[7]. Payload type interpretation is left to software.
+
+## DShot Payload Formats
+
+**DShot Command** (PTYPE_DSHOT_CMD, 1 word / 4 bytes):
+
+```
+[31:11]  Zero-padded
+[10:0]   DShot command value (0–2047)
+```
+
+The native DShot telemetry-request bit and 4-bit checksum are omitted — AeroLink provides CRC-16 integrity and built-in bidirectional communication.
+
+**DShot Response** (PTYPE_DSHOT_RESP, 1 word / 4 bytes):
+
+```
+[31:16]  Zero-padded
+[15:0]   Raw 16-bit telemetry word (eRPM / temperature / voltage / etc.)
+```
+
+GCR encoding is omitted — AeroLink's 8B10B encoding already provides DC balance and clock recovery.
+
+**UART Tunnel** (PTYPE_UART, 1–32 words / 4–128 bytes):
+
+```
+Byte 0:    Payload length (1–127, number of UART data bytes following)
+Byte 1..N: UART data bytes
+Byte N+1..: Zero-padded to next 32-bit word boundary
+```
+
+Provides a transparent byte-stream tunnel between master and slave, carried inside AeroLink frames with full CRC protection.
+
 ## Architecture
 
 - **AXI-Lite slave** interface for register access (125 MHz default clock)
